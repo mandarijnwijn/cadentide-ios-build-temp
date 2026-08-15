@@ -1,0 +1,255 @@
+name: Build Cadentide iPhone IPA
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cadentide-ios-public-encrypted-build
+  cancel-in-progress: false
+
+jobs:
+  build-ios:
+    name: Signed Cadentide IPA
+    runs-on: macos-26
+    timeout-minutes: 45
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: products/cadentide
+
+    steps:
+      - name: Check out encrypted payload
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Decrypt private build payload
+        working-directory: .
+        env:
+          CADENTIDE_ARCHIVE_SECRET: ${{ secrets.CADENTIDE_ARCHIVE_SECRET }}
+        run: |
+          set -euo pipefail
+          test -n "$CADENTIDE_ARCHIVE_SECRET"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
+            -in cadentide-project.enc \
+            -out "$RUNNER_TEMP/cadentide-project.zip" \
+            -pass env:CADENTIDE_ARCHIVE_SECRET
+          unzip -q "$RUNNER_TEMP/cadentide-project.zip"
+          test -s products/cadentide/ios/Cadentide.xcodeproj/project.pbxproj
+          test -s signing/dist-cert.p12
+          test -s signing/profile.mobileprovision
+          test -s signing/credentials.json
+
+      - name: Select Xcode 26
+        run: |
+          set -euo pipefail
+          XCODE_APP="$(find /Applications -maxdepth 1 -type d -name 'Xcode_26*.app' | sort | tail -n 1)"
+          test -n "$XCODE_APP"
+          sudo xcode-select -s "$XCODE_APP/Contents/Developer"
+          xcodebuild -version
+
+      - name: Install private signing identity
+        env:
+          SIGNING_DIRECTORY: ${{ github.workspace }}/signing
+        run: |
+          set -euo pipefail
+          P12_PASSWORD="$(ruby -rjson -e 'print JSON.parse(File.read(ARGV[0])).fetch("certificatePassword")' "$SIGNING_DIRECTORY/credentials.json")"
+          echo "::add-mask::$P12_PASSWORD"
+
+          KEYCHAIN_PATH="$RUNNER_TEMP/cadentide-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 32)"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$SIGNING_DIRECTORY/dist-cert.p12" \
+            -k "$KEYCHAIN_PATH" \
+            -P "$P12_PASSWORD" \
+            -A -t cert -f pkcs12
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH" >/dev/null
+          security default-keychain -d user -s "$KEYCHAIN_PATH"
+
+          PROFILE_PLIST="$RUNNER_TEMP/cadentide-profile.plist"
+          security cms -D -i "$SIGNING_DIRECTORY/profile.mobileprovision" > "$PROFILE_PLIST"
+          PROFILE_UUID="$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$PROFILE_PLIST")"
+          PROFILE_NAME="$(/usr/libexec/PlistBuddy -c 'Print :Name' "$PROFILE_PLIST")"
+          TEAM_ID="$(/usr/libexec/PlistBuddy -c 'Print :TeamIdentifier:0' "$PROFILE_PLIST")"
+          APPLICATION_ID="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$PROFILE_PLIST")"
+          test "$TEAM_ID" = "582X9U27VU"
+          test "$APPLICATION_ID" = "582X9U27VU.com.hzproductionz432.cadentide"
+          /usr/libexec/PlistBuddy -c 'Print :ProvisionedDevices' "$PROFILE_PLIST" | \
+            grep -q '00008150-000471841A41401C'
+
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          cp "$SIGNING_DIRECTORY/profile.mobileprovision" \
+            "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
+
+          SIGNING_IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | sed -n 's/.*"\(.*\)"/\1/p' | head -n 1)"
+          test -n "$SIGNING_IDENTITY"
+          {
+            echo "CADENTIDE_KEYCHAIN=$KEYCHAIN_PATH"
+            echo "CADENTIDE_PROFILE_NAME=$PROFILE_NAME"
+            echo "CADENTIDE_TEAM_ID=$TEAM_ID"
+            echo "CADENTIDE_SIGNING_IDENTITY=$SIGNING_IDENTITY"
+          } >> "$GITHUB_ENV"
+
+      - name: Run native unit tests
+        run: |
+          set -euo pipefail
+          DEVICE_ID="$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/ && /(Shutdown|Booted)/ { print $2; exit }')"
+          test -n "$DEVICE_ID"
+          xcrun simctl boot "$DEVICE_ID" 2>/dev/null || true
+          xcrun simctl bootstatus "$DEVICE_ID" -b
+          xcodebuild test \
+            -project ios/Cadentide.xcodeproj \
+            -scheme Cadentide \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,id=$DEVICE_ID" \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Archive and export signed IPA
+        run: |
+          set -euo pipefail
+          ARCHIVE_PATH="$RUNNER_TEMP/Cadentide.xcarchive"
+          EXPORT_PATH="$RUNNER_TEMP/cadentide-export"
+          EXPORT_OPTIONS="$RUNNER_TEMP/CadentideExportOptions.plist"
+          mkdir -p build "$EXPORT_PATH"
+
+          xcodebuild archive \
+            -project ios/Cadentide.xcodeproj \
+            -scheme Cadentide \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$ARCHIVE_PATH" \
+            DEVELOPMENT_TEAM="$CADENTIDE_TEAM_ID" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="$CADENTIDE_SIGNING_IDENTITY" \
+            PROVISIONING_PROFILE_SPECIFIER="$CADENTIDE_PROFILE_NAME" \
+            OTHER_CODE_SIGN_FLAGS="--keychain $CADENTIDE_KEYCHAIN"
+
+          cat > "$EXPORT_OPTIONS" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>destination</key>
+            <string>export</string>
+            <key>method</key>
+            <string>ad-hoc</string>
+            <key>signingCertificate</key>
+            <string>${CADENTIDE_SIGNING_IDENTITY}</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>stripSwiftSymbols</key>
+            <true/>
+            <key>teamID</key>
+            <string>${CADENTIDE_TEAM_ID}</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>com.hzproductionz432.cadentide</key>
+              <string>${CADENTIDE_PROFILE_NAME}</string>
+            </dict>
+          </dict>
+          </plist>
+          PLIST
+
+          xcodebuild -exportArchive \
+            -archivePath "$ARCHIVE_PATH" \
+            -exportPath "$EXPORT_PATH" \
+            -exportOptionsPlist "$EXPORT_OPTIONS" \
+            OTHER_CODE_SIGN_FLAGS="--keychain $CADENTIDE_KEYCHAIN"
+
+          IPA_PATH="$(find "$EXPORT_PATH" -maxdepth 1 -type f -name '*.ipa' | head -n 1)"
+          test -s "$IPA_PATH"
+          cp "$IPA_PATH" build/Cadentide.ipa
+
+      - name: Verify signed Cadentide application
+        run: |
+          set -euo pipefail
+          test -s build/Cadentide.ipa
+          CHECK_DIR="$RUNNER_TEMP/cadentide-ipa-check"
+          mkdir -p "$CHECK_DIR"
+          unzip -q build/Cadentide.ipa -d "$CHECK_DIR"
+          APP_PATH="$(find "$CHECK_DIR/Payload" -maxdepth 1 -type d -name '*.app' | head -n 1)"
+          test -n "$APP_PATH"
+          BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_PATH/Info.plist")"
+          DISPLAY_NAME="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$APP_PATH/Info.plist")"
+          VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_PATH/Info.plist")"
+          BUILD_NUMBER="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP_PATH/Info.plist")"
+          test "$BUNDLE_ID" = "com.hzproductionz432.cadentide"
+          test "$DISPLAY_NAME" = "Cadentide"
+          test "$VERSION" = "1.7"
+          test "$BUILD_NUMBER" = "9"
+          for SOUND in \
+            boss.wav chain.wav checkpoint.wav \
+            defeat.wav defeat_alt.wav defeat_soft.wav failure.wav \
+            hit.wav hit_alt.wav \
+            pearl.wav pearl_alt.wav pearl_soft.wav \
+            shot_fan.wav shot_lance.wav shot_spool.wav \
+            tide.wav tide_alt.wav victory.wav
+          do
+            test -s "$APP_PATH/$SOUND"
+          done
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+          security cms -D -i "$APP_PATH/embedded.mobileprovision" > "$CHECK_DIR/profile.plist"
+          /usr/libexec/PlistBuddy -c 'Print :ProvisionedDevices' "$CHECK_DIR/profile.plist" | \
+            grep -q '00008150-000471841A41401C'
+          TEAM_ID="$(/usr/libexec/PlistBuddy -c 'Print :TeamIdentifier:0' "$CHECK_DIR/profile.plist")"
+          test "$TEAM_ID" = "582X9U27VU"
+          codesign -d --entitlements :- "$APP_PATH" > "$CHECK_DIR/app-entitlements.plist" 2>/dev/null
+          APPLICATION_ID="$(/usr/libexec/PlistBuddy -c 'Print :application-identifier' "$CHECK_DIR/app-entitlements.plist")"
+          test "$APPLICATION_ID" = "582X9U27VU.com.hzproductionz432.cadentide"
+          echo "Verified Cadentide 1.7 (9) for the registered iPhone."
+
+      - name: Upload signed IPA artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cadentide-ios
+          path: products/cadentide/build/Cadentide.ipa
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
+
+      - name: Create iPhone installation link
+        run: |
+          set -euo pipefail
+          HOME_PAGE="$(mktemp)"
+          curl --fail --silent --show-error --location \
+            https://www.installonair.com/ > "$HOME_PAGE"
+          CSRF_TOKEN="$(node -e "const fs=require('fs'); const html=fs.readFileSync(process.argv[1], 'utf8'); const match=html.match(/<meta name=[\"']csrf-token[\"'] content=[\"']([^\"']+)[\"']/i); if (!match) process.exit(1); process.stdout.write(match[1]);" "$HOME_PAGE")"
+
+          curl --fail-with-body --silent --show-error --location \
+            -H "Accept: application/json" \
+            -H "X-Requested-With: XMLHttpRequest" \
+            -H "X-CSRF-TOKEN: $CSRF_TOKEN" \
+            -H "Origin: https://www.installonair.com" \
+            -H "Referer: https://www.installonair.com/" \
+            -F "_token=$CSRF_TOKEN" \
+            -F "ajax=1" \
+            -F "user_id=0" \
+            -F "ipafile=@build/Cadentide.ipa;type=application/octet-stream" \
+            https://fupload.installonair.com/ipafile > build/installonair-upload.json
+
+          INSTALL_URL="$(ruby -rjson -e 'result=JSON.parse(File.read(ARGV[0])); link=result.dig("data", "link"); abort JSON.generate(result) unless result["status"] && link&.match?(/\Ahttps:\/\//); print link' build/installonair-upload.json)"
+          INSTALL_URL="$INSTALL_URL" ruby -rjson -e 'File.write(ARGV[0], JSON.pretty_generate({provider: "InstallOnAir", url: ENV.fetch("INSTALL_URL")}) + "\n")' build/install-link.json
+          {
+            echo "## Cadentide 1.7 voor iPhone"
+            echo
+            echo "Open deze installatiepagina op de geregistreerde iPhone:"
+            echo
+            echo "[$INSTALL_URL]($INSTALL_URL)"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "Cadentide installation page: $INSTALL_URL"
+
+      - name: Upload installation metadata
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cadentide-ios-install
+          path: products/cadentide/build/install-link.json
+          if-no-files-found: error
+          retention-days: 3
