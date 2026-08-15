@@ -1,0 +1,19 @@
+name: Verify free public macOS runner
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-runner:
+    runs-on: macos-26
+    timeout-minutes: 5
+    steps:
+      - name: Verify macOS and Xcode availability
+        run: |
+          set -euo pipefail
+          sw_vers
+          xcodebuild -version
+          echo "Public macOS runner is ready."
