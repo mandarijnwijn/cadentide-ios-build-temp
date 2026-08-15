@@ -183,8 +183,8 @@ jobs:
           BUILD_NUMBER="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP_PATH/Info.plist")"
           test "$BUNDLE_ID" = "com.hzproductionz432.cadentide"
           test "$DISPLAY_NAME" = "Cadentide"
-          test "$VERSION" = "2.1"
-          test "$BUILD_NUMBER" = "12"
+          test "$VERSION" = "2.2"
+          test "$BUILD_NUMBER" = "13"
           for SOUND in \
             boss.wav chain.wav checkpoint.wav \
             defeat.wav defeat_alt.wav defeat_soft.wav failure.wav \
@@ -204,7 +204,7 @@ jobs:
           codesign -d --entitlements :- "$APP_PATH" > "$CHECK_DIR/app-entitlements.plist" 2>/dev/null
           APPLICATION_ID="$(/usr/libexec/PlistBuddy -c 'Print :application-identifier' "$CHECK_DIR/app-entitlements.plist")"
           test "$APPLICATION_ID" = "582X9U27VU.com.hzproductionz432.cadentide"
-          echo "Verified Cadentide 2.1 (12) for the registered iPhone."
+          echo "Verified Cadentide 2.2 (13) for the registered iPhone."
 
       - name: Upload signed IPA artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -238,7 +238,7 @@ jobs:
           INSTALL_URL="$(ruby -rjson -e 'result=JSON.parse(File.read(ARGV[0])); link=result.dig("data", "link"); abort JSON.generate(result) unless result["status"] && link&.match?(/\Ahttps:\/\//); print link' build/installonair-upload.json)"
           INSTALL_URL="$INSTALL_URL" ruby -rjson -e 'File.write(ARGV[0], JSON.pretty_generate({provider: "InstallOnAir", url: ENV.fetch("INSTALL_URL")}) + "\n")' build/install-link.json
           {
-            echo "## Cadentide 2.1 voor iPhone"
+            echo "## Cadentide 2.2 voor iPhone"
             echo
             echo "Open deze installatiepagina op de geregistreerde iPhone:"
             echo
