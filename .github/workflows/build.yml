@@ -190,7 +190,7 @@ jobs:
           test "$BUNDLE_ID" = "com.hzproductionz432.cadentide"
           test "$DISPLAY_NAME" = "Cadentide"
           test "$VERSION" = "3.4"
-          test "$BUILD_NUMBER" = "25"
+          test "$BUILD_NUMBER" = "26"
           for SOUND in \
             boss.wav chain.wav checkpoint.wav \
             defeat.wav defeat_alt.wav defeat_soft.wav failure.wav \
@@ -212,7 +212,7 @@ jobs:
           codesign -d --entitlements :- "$APP_PATH" > "$CHECK_DIR/app-entitlements.plist" 2>/dev/null
           APPLICATION_ID="$(/usr/libexec/PlistBuddy -c 'Print :application-identifier' "$CHECK_DIR/app-entitlements.plist")"
           test "$APPLICATION_ID" = "582X9U27VU.com.hzproductionz432.cadentide"
-          echo "Verified Cadentide 3.4 (25) for the registered iPhone."
+          echo "Verified Cadentide 3.4 (26) for the registered iPhone."
 
       - name: Upload signed IPA artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
