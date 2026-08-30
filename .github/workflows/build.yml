@@ -16,8 +16,8 @@ jobs:
     runs-on: macos-26
     timeout-minutes: 45
     env:
-      CADENTIDE_MARKETING_VERSION: "3.8"
-      CADENTIDE_BUILD_NUMBER: "30"
+      CADENTIDE_MARKETING_VERSION: "3.9"
+      CADENTIDE_BUILD_NUMBER: "31"
 
     defaults:
       run:
@@ -47,10 +47,10 @@ jobs:
           test -s signing/profile.mobileprovision
           test -s signing/credentials.json
 
-      - name: Install encrypted Cadentide 3.8 source
+      - name: Install encrypted Cadentide 3.9 source
         working-directory: .
         env:
-          CADENTIDE_OVERLAY_SECRET: ${{ secrets.CADENTIDE_OVERLAY_SECRET_38 }}
+          CADENTIDE_OVERLAY_SECRET: ${{ secrets.CADENTIDE_OVERLAY_SECRET_39 }}
         run: |
           set -euo pipefail
           test -n "$CADENTIDE_OVERLAY_SECRET"
