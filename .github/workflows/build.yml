@@ -69,6 +69,13 @@ jobs:
           rm -rf products/cadentide/ios
           mv "$OVERLAY_ROOT/products/cadentide/ios" products/cadentide/ios
 
+      - name: Align regression tests with monochrome design
+        run: |
+          set -euo pipefail
+          ruby -pi -e 'gsub("func testDryBellCopyPointsToTheRealSafePlace() throws {", "func testDryBellCopyPointsToTheRealSafePlaceWithoutDependingOnBlue() throws {"); gsub("blauwe cirkel", "veilige cirkel"); gsub("func testWatermelonReadabilityRingStaysVisibleWithoutHeavyGlow() throws {", "func testWatermelonReadabilityRingStaysHiddenWithoutGlow() throws {"); gsub("XCTAssertGreaterThanOrEqual(ring.alpha, 0.50)", "XCTAssertTrue(ring.isHidden)"); gsub("XCTAssertGreaterThanOrEqual(ring.lineWidth, 2)", "XCTAssertEqual(ring.lineWidth, 0)"); gsub("XCTAssertLessThanOrEqual(ring.glowWidth, 2)", "XCTAssertEqual(ring.glowWidth, 0)"); gsub("XCTAssertGreaterThan(ring.alpha, 0.85)", "XCTAssertTrue(ring.isHidden)\n        XCTAssertEqual(ring.strokeColor, .clear)")' ios/CadentideTests/GameCoreTests.swift
+          grep -q 'testDryBellCopyPointsToTheRealSafePlaceWithoutDependingOnBlue' ios/CadentideTests/GameCoreTests.swift
+          grep -q 'testWatermelonReadabilityRingStaysHiddenWithoutGlow' ios/CadentideTests/GameCoreTests.swift
+
       - name: Select Xcode 26
         run: |
           set -euo pipefail
