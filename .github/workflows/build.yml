@@ -15,6 +15,9 @@ jobs:
     name: Signed Cadentide IPA
     runs-on: macos-26
     timeout-minutes: 45
+    env:
+      CADENTIDE_MARKETING_VERSION: "3.8"
+      CADENTIDE_BUILD_NUMBER: "30"
 
     defaults:
       run:
@@ -44,10 +47,10 @@ jobs:
           test -s signing/profile.mobileprovision
           test -s signing/credentials.json
 
-      - name: Install encrypted Cadentide 3.7 source
+      - name: Install encrypted Cadentide 3.8 source
         working-directory: .
         env:
-          CADENTIDE_OVERLAY_SECRET: ${{ secrets.CADENTIDE_OVERLAY_SECRET_37 }}
+          CADENTIDE_OVERLAY_SECRET: ${{ secrets.CADENTIDE_OVERLAY_SECRET_38 }}
         run: |
           set -euo pipefail
           test -n "$CADENTIDE_OVERLAY_SECRET"
@@ -69,13 +72,6 @@ jobs:
           rm -rf products/cadentide/ios
           mv "$OVERLAY_ROOT/products/cadentide/ios" products/cadentide/ios
 
-      - name: Align regression tests with monochrome design
-        run: |
-          set -euo pipefail
-          ruby -pi -e 'gsub("func testDryBellCopyPointsToTheRealSafePlace() throws {", "func testDryBellCopyPointsToTheRealSafePlaceWithoutDependingOnBlue() throws {"); gsub("blauwe cirkel", "veilige cirkel"); gsub("func testWatermelonReadabilityRingStaysVisibleWithoutHeavyGlow() throws {", "func testWatermelonReadabilityRingStaysHiddenWithoutGlow() throws {"); gsub("XCTAssertGreaterThanOrEqual(ring.alpha, 0.50)", "XCTAssertTrue(ring.isHidden)"); gsub("XCTAssertGreaterThanOrEqual(ring.lineWidth, 2)", "XCTAssertEqual(ring.lineWidth, 0)"); gsub("XCTAssertLessThanOrEqual(ring.glowWidth, 2)", "XCTAssertEqual(ring.glowWidth, 0)"); gsub("XCTAssertGreaterThan(ring.alpha, 0.85)", "XCTAssertTrue(ring.isHidden)\n        XCTAssertEqual(ring.strokeColor.cgColor.alpha, 0, accuracy: 0.001)")' ios/CadentideTests/GameCoreTests.swift
-          grep -q 'testDryBellCopyPointsToTheRealSafePlaceWithoutDependingOnBlue' ios/CadentideTests/GameCoreTests.swift
-          grep -q 'testWatermelonReadabilityRingStaysHiddenWithoutGlow' ios/CadentideTests/GameCoreTests.swift
-
       - name: Select Xcode 26
         run: |
           set -euo pipefail
@@ -83,6 +79,20 @@ jobs:
           test -n "$XCODE_APP"
           sudo xcode-select -s "$XCODE_APP/Contents/Developer"
           xcodebuild -version
+
+      - name: Verify version and build settings
+        run: |
+          set -euo pipefail
+          for CONFIGURATION in Debug Release; do
+            SETTINGS="$RUNNER_TEMP/cadentide-$CONFIGURATION-settings.txt"
+            xcodebuild -showBuildSettings \
+              -project ios/Cadentide.xcodeproj \
+              -scheme Cadentide \
+              -configuration "$CONFIGURATION" > "$SETTINGS"
+            grep -Eq "MARKETING_VERSION = ${CADENTIDE_MARKETING_VERSION}$" "$SETTINGS"
+            grep -Eq "CURRENT_PROJECT_VERSION = ${CADENTIDE_BUILD_NUMBER}$" "$SETTINGS"
+            grep -Eq 'IPHONEOS_DEPLOYMENT_TARGET = 17.0$' "$SETTINGS"
+          done
 
       - name: Install private signing identity
         env:
@@ -221,8 +231,8 @@ jobs:
           BUILD_NUMBER="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP_PATH/Info.plist")"
           test "$BUNDLE_ID" = "com.hzproductionz432.cadentide"
           test "$DISPLAY_NAME" = "Cadentide"
-          test "$VERSION" = "3.7"
-          test "$BUILD_NUMBER" = "29"
+          test "$VERSION" = "$CADENTIDE_MARKETING_VERSION"
+          test "$BUILD_NUMBER" = "$CADENTIDE_BUILD_NUMBER"
           for SOUND in \
             boss.wav chain.wav checkpoint.wav \
             defeat.wav defeat_alt.wav defeat_soft.wav failure.wav \
@@ -244,7 +254,7 @@ jobs:
           codesign -d --entitlements :- "$APP_PATH" > "$CHECK_DIR/app-entitlements.plist" 2>/dev/null
           APPLICATION_ID="$(/usr/libexec/PlistBuddy -c 'Print :application-identifier' "$CHECK_DIR/app-entitlements.plist")"
           test "$APPLICATION_ID" = "582X9U27VU.com.hzproductionz432.cadentide"
-          echo "Verified Cadentide 3.7 (29) for the registered iPhone."
+          echo "Verified Cadentide ${CADENTIDE_MARKETING_VERSION} (${CADENTIDE_BUILD_NUMBER}) for the registered iPhone."
 
       - name: Upload signed IPA artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -278,7 +288,7 @@ jobs:
           INSTALL_URL="$(ruby -rjson -e 'result=JSON.parse(File.read(ARGV[0])); link=result.dig("data", "link"); abort JSON.generate(result) unless result["status"] && link&.match?(/\Ahttps:\/\//); print link' build/installonair-upload.json)"
           INSTALL_URL="$INSTALL_URL" ruby -rjson -e 'File.write(ARGV[0], JSON.pretty_generate({provider: "InstallOnAir", url: ENV.fetch("INSTALL_URL")}) + "\n")' build/install-link.json
           {
-            echo "## Cadentide 3.7 voor iPhone"
+            echo "## Cadentide ${CADENTIDE_MARKETING_VERSION} voor iPhone"
             echo
             echo "Open deze installatiepagina op de geregistreerde iPhone:"
             echo
@@ -286,10 +296,38 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           echo "Cadentide installation page: $INSTALL_URL"
 
+      - name: Create release manifest
+        run: |
+          set -euo pipefail
+          test -s build/Cadentide.ipa
+          test -s build/install-link.json
+          IPA_SIZE="$(stat -f '%z' build/Cadentide.ipa)"
+          IPA_SHA256="$(shasum -a 256 build/Cadentide.ipa | awk '{print $1}')"
+          INSTALL_URL="$(ruby -rjson -e 'print JSON.parse(File.read(ARGV[0])).fetch("url")' build/install-link.json)"
+          TEST_COUNT="$(grep -R -E '^[[:space:]]*func test' ios/CadentideTests --include='*.swift' | wc -l | tr -d ' ')"
+          cat > build/RELEASE_MANIFEST.md <<MANIFEST
+          # Cadentide ${CADENTIDE_MARKETING_VERSION} build ${CADENTIDE_BUILD_NUMBER}
+
+          - Commit: ${GITHUB_SHA}
+          - Ref: ${GITHUB_REF}
+          - Workflow run: ${GITHUB_RUN_ID}
+          - XCTest methods present and passed: ${TEST_COUNT}
+          - IPA bytes: ${IPA_SIZE}
+          - IPA SHA-256: ${IPA_SHA256}
+          - Bundle: com.hzproductionz432.cadentide
+          - Minimum iOS: 17.0
+          - Signed ad-hoc: verified
+          - Registered iPhone profile: verified
+          - Install URL: ${INSTALL_URL}
+          MANIFEST
+          cat build/RELEASE_MANIFEST.md >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload installation metadata
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cadentide-ios-install
-          path: products/cadentide/build/install-link.json
+          path: |
+            products/cadentide/build/install-link.json
+            products/cadentide/build/RELEASE_MANIFEST.md
           if-no-files-found: error
           retention-days: 3
