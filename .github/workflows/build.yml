@@ -17,7 +17,7 @@ jobs:
     timeout-minutes: 45
     env:
       CADENTIDE_MARKETING_VERSION: "4.4"
-      CADENTIDE_BUILD_NUMBER: "36"
+      CADENTIDE_BUILD_NUMBER: "37"
 
     defaults:
       run:
@@ -50,7 +50,7 @@ jobs:
       - name: Install encrypted Cadentide 4.4 source
         working-directory: .
         env:
-          CADENTIDE_OVERLAY_SECRET: ${{ secrets.CADENTIDE_OVERLAY_SECRET_44 }}
+          CADENTIDE_OVERLAY_SECRET: ${{ secrets.CADENTIDE_OVERLAY_SECRET_44_BUILD37 }}
         run: |
           set -euo pipefail
           test -n "$CADENTIDE_OVERLAY_SECRET"
@@ -63,6 +63,23 @@ jobs:
             -pass env:CADENTIDE_OVERLAY_SECRET
           mkdir -p "$OVERLAY_ROOT"
           unzip -q "$OVERLAY_ARCHIVE" -d "$OVERLAY_ROOT"
+          OVERLAY_ROOT="$OVERLAY_ROOT" python3 - <<'PY'
+          import hashlib, json, os, pathlib
+          provenance = json.loads(pathlib.Path('SOURCE_PROVENANCE.json').read_text())
+          digest = lambda p: hashlib.sha256(p.read_bytes()).hexdigest().upper()
+          assert digest(pathlib.Path('cadentide-source-overlay.enc')) == provenance['encryptedOverlaySHA256']
+          assert digest(pathlib.Path('cadentide-project.enc')) == provenance['signingPayloadSHA256']
+          root = pathlib.Path(os.environ['OVERLAY_ROOT']) / 'products/cadentide/ios'
+          manifest_path = root / 'SOURCE_MANIFEST.json'
+          assert digest(manifest_path) == provenance['sourceManifestSHA256']
+          manifest = json.loads(manifest_path.read_text())
+          assert manifest['build'] == 37 and manifest['version'] == '4.4'
+          for entry in manifest['files']:
+              path = (root / entry['path']).resolve()
+              assert path.is_relative_to(root.resolve())
+              assert path.stat().st_size == entry['bytes'] and digest(path) == entry['sha256']
+          print('Verified encrypted source provenance:', len(manifest['files']), 'files')
+          PY
           test -s "$OVERLAY_ROOT/products/cadentide/ios/Cadentide.xcodeproj/project.pbxproj"
           test -s "$OVERLAY_ROOT/products/cadentide/ios/Cadentide/ContentView.swift"
           test -s "$OVERLAY_ROOT/products/cadentide/ios/Cadentide/Game/GameScene.swift"
@@ -153,12 +170,31 @@ jobs:
           test -n "$DEVICE_ID"
           xcrun simctl boot "$DEVICE_ID" 2>/dev/null || true
           xcrun simctl bootstatus "$DEVICE_ID" -b
+          mkdir -p build
           xcodebuild test \
             -project ios/Cadentide.xcodeproj \
             -scheme Cadentide \
             -configuration Debug \
             -destination "platform=iOS Simulator,id=$DEVICE_ID" \
+            -parallel-testing-enabled NO \
+            -resultBundlePath build/HardeningTests.xcresult \
+            -only-testing:CadentideTests/GameCoreTests/testLegacyEndlessCheckpointRebasesKillsWithoutInstantRewardsAndSurvivesRelaunch \
+            -only-testing:CadentideTests/GameCoreTests/testVersionedAndUnrelatedEndlessContractsKeepTheirExistingProgress \
+            -only-testing:CadentideTests/GameCoreTests/testLiveEquipSaveRoundtripPreservesOrderedVolleyAdmissionAtProjectileCap \
+            -only-testing:CadentideTests/GameCoreTests/testLegacyMedalSaveKeepsMeaningAndRewardsThroughUpgradeExportAndRelaunch \
             CODE_SIGNING_ALLOWED=NO
+          xcodebuild test \
+            -project ios/Cadentide.xcodeproj \
+            -scheme Cadentide \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,id=$DEVICE_ID" \
+            -parallel-testing-enabled NO \
+            -resultBundlePath build/CadentideTests.xcresult \
+            CODE_SIGNING_ALLOWED=NO
+          xcrun xcresulttool get test-results summary --path build/HardeningTests.xcresult > build/hardening-test-summary.json
+          xcrun xcresulttool get test-results summary --path build/CadentideTests.xcresult > build/native-test-summary.json
+          EXPECTED_TESTS="$(grep -R -E '^[[:space:]]*func test' ios/CadentideTests --include='*.swift' | wc -l | tr -d ' ')"
+          ruby -rjson -e 's=JSON.parse(File.read(ARGV[0])); abort "Native test count/failures mismatch" unless s.fetch("passedTests") == ARGV[1].to_i && s.fetch("failedTests") == 0 && s.fetch("skippedTests") == 0' build/native-test-summary.json "$EXPECTED_TESTS"
 
       - name: Archive and export signed IPA
         run: |
@@ -304,14 +340,14 @@ jobs:
           IPA_SIZE="$(stat -f '%z' build/Cadentide.ipa)"
           IPA_SHA256="$(shasum -a 256 build/Cadentide.ipa | awk '{print $1}')"
           INSTALL_URL="$(ruby -rjson -e 'print JSON.parse(File.read(ARGV[0])).fetch("url")' build/install-link.json)"
-          TEST_COUNT="$(grep -R -E '^[[:space:]]*func test' ios/CadentideTests --include='*.swift' | wc -l | tr -d ' ')"
+          TEST_COUNT="$(ruby -rjson -e 'print JSON.parse(File.read(ARGV[0])).fetch("passedTests")' build/native-test-summary.json)"
           cat > build/RELEASE_MANIFEST.md <<MANIFEST
           # Cadentide ${CADENTIDE_MARKETING_VERSION} build ${CADENTIDE_BUILD_NUMBER}
 
           - Commit: ${GITHUB_SHA}
           - Ref: ${GITHUB_REF}
           - Workflow run: ${GITHUB_RUN_ID}
-          - XCTest methods present and passed: ${TEST_COUNT}
+          - Native XCTest passed (xcresult): ${TEST_COUNT}; failed: 0; skipped: 0
           - IPA bytes: ${IPA_SIZE}
           - IPA SHA-256: ${IPA_SHA256}
           - Bundle: com.hzproductionz432.cadentide
@@ -329,5 +365,16 @@ jobs:
           path: |
             products/cadentide/build/install-link.json
             products/cadentide/build/RELEASE_MANIFEST.md
+            products/cadentide/build/native-test-summary.json
+            products/cadentide/build/hardening-test-summary.json
           if-no-files-found: error
+          retention-days: 3
+
+      - name: Preserve native test results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: cadentide-native-test-results
+          path: products/cadentide/build/*.xcresult
+          if-no-files-found: ignore
           retention-days: 3
