@@ -57,6 +57,13 @@ jobs:
           xcrun xcresulttool get test-results summary --path evidence/Tests.xcresult > evidence/tests.json
           EXPECTED_TESTS="$(grep -R -E '^[[:space:]]*func test' products/cadentide/ios/CadentideTests --include='*.swift' | wc -l | tr -d ' ')"
           ruby -rjson -e 's=JSON.parse(File.read(ARGV[0])); abort "Test gate failed" unless s.fetch("passedTests") == ARGV[1].to_i && s.fetch("failedTests") == 0 && s.fetch("skippedTests") == 0' evidence/tests.json "$EXPECTED_TESTS"
+      - name: Export native evidence even after a failed assertion
+        if: always()
+        run: |
+          if [ -d evidence/Tests.xcresult ]; then
+            xcrun xcresulttool get test-results summary --path evidence/Tests.xcresult > evidence/tests.json
+            xcrun xcresulttool export attachments --path evidence/Tests.xcresult --output-path evidence/attachments
+          fi
       - name: Capture real simulator menu in both appearances
         run: |
           set -euo pipefail
@@ -69,7 +76,6 @@ jobs:
             sleep 4
             xcrun simctl io "$DEVICE_ID" screenshot "evidence/harbor-$APPEARANCE.png"
           done
-          xcrun xcresulttool export attachments --path evidence/Tests.xcresult --output-path evidence/attachments
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:
