@@ -1,0 +1,78 @@
+name: Unsigned paper sketch verification
+on:
+  push:
+    branches: [codex/cadentide-paper-sketch]
+    paths: [cadentide-paper-sketch.enc, PAPER_SKETCH_PROVENANCE.json, .github/workflows/paper-sketch.yml]
+permissions:
+  contents: read
+concurrency:
+  group: cadentide-paper-sketch-tests
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Decrypt and verify source only
+        env:
+          SOURCE_KEY: ${{ secrets.CADENTIDE_PAPER_SKETCH_TEST_SECRET }}
+        run: |
+          set -euo pipefail
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in cadentide-paper-sketch.enc -out "$RUNNER_TEMP/source.zip" -pass env:SOURCE_KEY
+          unzip -q "$RUNNER_TEMP/source.zip"
+          python3 - <<'PY'
+          import hashlib, json, pathlib
+          digest = lambda p: hashlib.sha256(p.read_bytes()).hexdigest().upper()
+          provenance = json.loads(pathlib.Path('PAPER_SKETCH_PROVENANCE.json').read_text())
+          assert digest(pathlib.Path('cadentide-paper-sketch.enc')) == provenance['encryptedOverlaySHA256']
+          root = pathlib.Path('products/cadentide/ios').resolve()
+          manifest = root / 'SOURCE_MANIFEST.json'
+          assert digest(manifest) == provenance['sourceManifestSHA256']
+          data = json.loads(manifest.read_text())
+          for entry in data['files']:
+              file = (root / entry['path']).resolve()
+              assert file.is_relative_to(root) and file.stat().st_size == entry['bytes']
+              assert digest(file) == entry['sha256']
+          assert not pathlib.Path('signing').exists()
+          print('Source-only provenance verified:', len(data['files']), 'files')
+          PY
+      - name: Native simulator build and full tests
+        run: |
+          set -euo pipefail
+          XCODE_APP="$(find /Applications -maxdepth 1 -type d -name 'Xcode_26*.app' | sort | tail -n 1)"
+          test -n "$XCODE_APP"
+          sudo xcode-select -s "$XCODE_APP/Contents/Developer"
+          xcodebuild -version
+          DEVICE_ID="$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/ && /(Shutdown|Booted)/ { print $2; exit }')"
+          test -n "$DEVICE_ID"
+          echo "DEVICE_ID=$DEVICE_ID" >> "$GITHUB_ENV"
+          xcrun simctl boot "$DEVICE_ID" 2>/dev/null || true
+          xcrun simctl bootstatus "$DEVICE_ID" -b
+          mkdir -p evidence
+          xcrun simctl list devices available > evidence/simulators.txt
+          xcodebuild test -project products/cadentide/ios/Cadentide.xcodeproj -scheme Cadentide -configuration Debug -destination "platform=iOS Simulator,id=$DEVICE_ID" -parallel-testing-enabled NO -derivedDataPath "$RUNNER_TEMP/DerivedData" -resultBundlePath evidence/Tests.xcresult CODE_SIGNING_ALLOWED=NO
+          xcrun xcresulttool get test-results summary --path evidence/Tests.xcresult > evidence/tests.json
+          EXPECTED_TESTS="$(grep -R -E '^[[:space:]]*func test' products/cadentide/ios/CadentideTests --include='*.swift' | wc -l | tr -d ' ')"
+          ruby -rjson -e 's=JSON.parse(File.read(ARGV[0])); abort "Test gate failed" unless s.fetch("passedTests") == ARGV[1].to_i && s.fetch("failedTests") == 0 && s.fetch("skippedTests") == 0' evidence/tests.json "$EXPECTED_TESTS"
+      - name: Capture real simulator menu in both appearances
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/DerivedData/Build/Products/Debug-iphonesimulator/Cadentide.app"
+          xcrun simctl install "$DEVICE_ID" "$APP"
+          for APPEARANCE in light dark; do
+            xcrun simctl ui "$DEVICE_ID" appearance "$APPEARANCE"
+            xcrun simctl terminate "$DEVICE_ID" com.hzproductionz432.cadentide 2>/dev/null || true
+            xcrun simctl launch "$DEVICE_ID" com.hzproductionz432.cadentide
+            sleep 4
+            xcrun simctl io "$DEVICE_ID" screenshot "evidence/harbor-$APPEARANCE.png"
+          done
+          xcrun xcresulttool export attachments --path evidence/Tests.xcresult --output-path evidence/attachments
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: paper-sketch-verification
+          path: evidence
+          retention-days: 14
