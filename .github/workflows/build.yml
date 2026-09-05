@@ -17,7 +17,7 @@ jobs:
     timeout-minutes: 45
     env:
       CADENTIDE_MARKETING_VERSION: "4.4"
-      CADENTIDE_BUILD_NUMBER: "37"
+      CADENTIDE_BUILD_NUMBER: "38"
 
     defaults:
       run:
@@ -50,7 +50,7 @@ jobs:
       - name: Install encrypted Cadentide 4.4 source
         working-directory: .
         env:
-          CADENTIDE_OVERLAY_SECRET: ${{ secrets.CADENTIDE_OVERLAY_SECRET_44_BUILD37 }}
+          CADENTIDE_OVERLAY_SECRET: ${{ secrets.CADENTIDE_OVERLAY_SECRET_44_BUILD38 }}
         run: |
           set -euo pipefail
           test -n "$CADENTIDE_OVERLAY_SECRET"
@@ -73,7 +73,8 @@ jobs:
           manifest_path = root / 'SOURCE_MANIFEST.json'
           assert digest(manifest_path) == provenance['sourceManifestSHA256']
           manifest = json.loads(manifest_path.read_text())
-          assert manifest['build'] == 37 and manifest['version'] == '4.4'
+          assert manifest['build'] == 38 and manifest['version'] == '4.4'
+          assert provenance['build'] == manifest['build'] and provenance['version'] == manifest['version']
           for entry in manifest['files']:
               path = (root / entry['path']).resolve()
               assert path.is_relative_to(root.resolve())
@@ -194,6 +195,8 @@ jobs:
           xcrun xcresulttool get test-results summary --path build/HardeningTests.xcresult > build/hardening-test-summary.json
           xcrun xcresulttool get test-results summary --path build/CadentideTests.xcresult > build/native-test-summary.json
           EXPECTED_TESTS="$(grep -R -E '^[[:space:]]*func test' ios/CadentideTests --include='*.swift' | wc -l | tr -d ' ')"
+          test "$EXPECTED_TESTS" = "181"
+          ruby -rjson -e 's=JSON.parse(File.read(ARGV[0])); abort "Hardening test gate failed" unless s.fetch("passedTests") == 4 && s.fetch("failedTests") == 0 && s.fetch("skippedTests") == 0' build/hardening-test-summary.json
           ruby -rjson -e 's=JSON.parse(File.read(ARGV[0])); abort "Native test count/failures mismatch" unless s.fetch("passedTests") == ARGV[1].to_i && s.fetch("failedTests") == 0 && s.fetch("skippedTests") == 0' build/native-test-summary.json "$EXPECTED_TESTS"
 
       - name: Archive and export signed IPA
@@ -290,6 +293,16 @@ jobs:
           codesign -d --entitlements :- "$APP_PATH" > "$CHECK_DIR/app-entitlements.plist" 2>/dev/null
           APPLICATION_ID="$(/usr/libexec/PlistBuddy -c 'Print :application-identifier' "$CHECK_DIR/app-entitlements.plist")"
           test "$APPLICATION_ID" = "582X9U27VU.com.hzproductionz432.cadentide"
+          python3 - "$CHECK_DIR/profile.plist" "$CHECK_DIR/app-entitlements.plist" "$APP_PATH/Info.plist" <<'PY'
+          import datetime, plistlib, sys
+          profile, entitlements, info = [plistlib.load(open(path, 'rb')) for path in sys.argv[1:]]
+          assert profile['ExpirationDate'] > datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+          assert profile['Entitlements'].get('get-task-allow', False) is False
+          assert entitlements.get('get-task-allow', False) is False
+          assert not profile.get('ProvisionsAllDevices', False)
+          assert info['MinimumOSVersion'] == '17.0'
+          print('Profile validity, release entitlements and minimum iOS verified')
+          PY
           echo "Verified Cadentide ${CADENTIDE_MARKETING_VERSION} (${CADENTIDE_BUILD_NUMBER}) for the registered iPhone."
 
       - name: Upload signed IPA artifact
