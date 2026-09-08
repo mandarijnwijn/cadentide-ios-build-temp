@@ -17,7 +17,7 @@ jobs:
     timeout-minutes: 45
     env:
       CADENTIDE_MARKETING_VERSION: "4.4"
-      CADENTIDE_BUILD_NUMBER: "38"
+      CADENTIDE_BUILD_NUMBER: "39"
 
     defaults:
       run:
@@ -50,7 +50,7 @@ jobs:
       - name: Install encrypted Cadentide 4.4 source
         working-directory: .
         env:
-          CADENTIDE_OVERLAY_SECRET: ${{ secrets.CADENTIDE_OVERLAY_SECRET_44_BUILD38 }}
+          CADENTIDE_OVERLAY_SECRET: ${{ secrets.CADENTIDE_OVERLAY_SECRET_44_BUILD39 }}
         run: |
           set -euo pipefail
           test -n "$CADENTIDE_OVERLAY_SECRET"
@@ -73,7 +73,7 @@ jobs:
           manifest_path = root / 'SOURCE_MANIFEST.json'
           assert digest(manifest_path) == provenance['sourceManifestSHA256']
           manifest = json.loads(manifest_path.read_text())
-          assert manifest['build'] == 38 and manifest['version'] == '4.4'
+          assert manifest['build'] == 39 and manifest['version'] == '4.4'
           assert provenance['build'] == manifest['build'] and provenance['version'] == manifest['version']
           for entry in manifest['files']:
               path = (root / entry['path']).resolve()
@@ -195,7 +195,7 @@ jobs:
           xcrun xcresulttool get test-results summary --path build/HardeningTests.xcresult > build/hardening-test-summary.json
           xcrun xcresulttool get test-results summary --path build/CadentideTests.xcresult > build/native-test-summary.json
           EXPECTED_TESTS="$(grep -R -E '^[[:space:]]*func test' ios/CadentideTests --include='*.swift' | wc -l | tr -d ' ')"
-          test "$EXPECTED_TESTS" = "181"
+          test "$EXPECTED_TESTS" = "184"
           ruby -rjson -e 's=JSON.parse(File.read(ARGV[0])); abort "Hardening test gate failed" unless s.fetch("passedTests") == 4 && s.fetch("failedTests") == 0 && s.fetch("skippedTests") == 0' build/hardening-test-summary.json
           ruby -rjson -e 's=JSON.parse(File.read(ARGV[0])); abort "Native test count/failures mismatch" unless s.fetch("passedTests") == ARGV[1].to_i && s.fetch("failedTests") == 0 && s.fetch("skippedTests") == 0' build/native-test-summary.json "$EXPECTED_TESTS"
 
