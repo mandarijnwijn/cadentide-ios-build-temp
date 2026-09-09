@@ -195,7 +195,7 @@ jobs:
           xcrun xcresulttool get test-results summary --path build/HardeningTests.xcresult > build/hardening-test-summary.json
           xcrun xcresulttool get test-results summary --path build/CadentideTests.xcresult > build/native-test-summary.json
           EXPECTED_TESTS="$(grep -R -E '^[[:space:]]*func test' ios/CadentideTests --include='*.swift' | wc -l | tr -d ' ')"
-          test "$EXPECTED_TESTS" = "200"
+          test "$EXPECTED_TESTS" = "201"
           ruby -rjson -e 's=JSON.parse(File.read(ARGV[0])); abort "Hardening test gate failed" unless s.fetch("passedTests") == 4 && s.fetch("failedTests") == 0 && s.fetch("skippedTests") == 0' build/hardening-test-summary.json
           ruby -rjson -e 's=JSON.parse(File.read(ARGV[0])); abort "Native test count/failures mismatch" unless s.fetch("passedTests") == ARGV[1].to_i && s.fetch("failedTests") == 0 && s.fetch("skippedTests") == 0' build/native-test-summary.json "$EXPECTED_TESTS"
 
