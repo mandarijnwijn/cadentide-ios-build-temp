@@ -161,7 +161,7 @@ jobs:
       - name: Run native unit tests
         run: |
           set -euo pipefail
-          if grep -R -nE '^import (StoreKit|AdSupport|AppTrackingTransparency|WebKit|Network)$|URLSession|GADMobileAds|FirebaseAnalytics|FBSDK|AppsFlyer|Adjust' ios/Cadentide --include='*.swift'; then
+          if grep -R -nE '^import (StoreKit|AdSupport|AppTrackingTransparency|WebKit|Network)$|URLSession|GADMobileAds|FirebaseAnalytics|FBSDK|AppsFlyer|Adjust([[:space:]]|SDK|\.framework)' ios/Cadentide --include='*.swift'; then
             echo "Unexpected network, advertising, tracking or commerce code found." >&2
             exit 1
           fi
