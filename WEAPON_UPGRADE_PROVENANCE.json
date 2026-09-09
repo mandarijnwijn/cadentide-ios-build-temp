@@ -1,0 +1,9 @@
+{
+  "version": "4.4",
+  "build": 41,
+  "baseCommit": "02e2850a26ea28f4caa1ed948b0ef0cecd7c0cd8",
+  "sourceFileCount": 44,
+  "sourceManifestSHA256": "A8346B62175697354EA15C89E743C3369B5B033EA29BDEF6A4B65DA2EB601F8A",
+  "encryptedOverlaySHA256": "856BF41D956165A640B30AC7C05204A030A8A43628163A7116100940B6C7C914",
+  "purpose": "Unsigned simulator verification only; not an iOS release"
+}
