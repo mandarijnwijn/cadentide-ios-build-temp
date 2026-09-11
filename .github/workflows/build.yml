@@ -17,7 +17,7 @@ jobs:
     timeout-minutes: 45
     env:
       CADENTIDE_MARKETING_VERSION: "4.4"
-      CADENTIDE_BUILD_NUMBER: "49"
+      CADENTIDE_BUILD_NUMBER: "50"
 
     defaults:
       run:
@@ -50,7 +50,7 @@ jobs:
       - name: Install encrypted Cadentide 4.4 source
         working-directory: .
         env:
-          CADENTIDE_OVERLAY_SECRET: ${{ secrets.CADENTIDE_OVERLAY_SECRET_44_BUILD49 }}
+          CADENTIDE_OVERLAY_SECRET: ${{ secrets.CADENTIDE_OVERLAY_SECRET_44_BUILD50 }}
         run: |
           set -euo pipefail
           test -n "$CADENTIDE_OVERLAY_SECRET"
@@ -73,7 +73,7 @@ jobs:
           manifest_path = root / 'SOURCE_MANIFEST.json'
           assert digest(manifest_path) == provenance['sourceManifestSHA256']
           manifest = json.loads(manifest_path.read_text())
-          assert manifest['build'] == 49 and manifest['version'] == '4.4'
+          assert manifest['build'] == 50 and manifest['version'] == '4.4'
           assert provenance['build'] == manifest['build'] and provenance['version'] == manifest['version']
           for entry in manifest['files']:
               path = (root / entry['path']).resolve()
