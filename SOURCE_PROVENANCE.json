@@ -3,11 +3,11 @@
   "build": 51,
   "baseCommit": "1aac4ae2bedba3ad1297714260e0b79c48a38006",
   "verificationStrategy": "Require successful unsigned source verification, then rerun all 208 native tests plus four hardening tests before importing the signing identity and archiving",
-  "verifiedNativeRun": 35513715983,
-  "verifiedNativeCommit": "6721bad6f9f701f4baeb11340809c935af71dddc",
+  "verifiedNativeRun": 35514085621,
+  "verifiedNativeCommit": "58b45d57c27d756b1f15550ac3ae9a8184795bf5",
   "expectedNativeTests": 208,
   "sourceFileCount": 43,
-  "sourceManifestSHA256": "25A3B1D4FD9A75BAE1299CEBF9C4700EE5AEEF84D44AB087EEFF811BD5BFAE5F",
-  "encryptedOverlaySHA256": "673DE13701A14BBD428A9C2458F916B90E9B94B4616EE610831EAC9B0F9ED53D",
+  "sourceManifestSHA256": "AACC0203EAD7B2649528E8E81F66A2C4EF9A5E49F26A8E02C13E37C55D466800",
+  "encryptedOverlaySHA256": "361E53F82B0BEBE4B8585C598123386BEC7D32F1D099B66F775AAD2339E4EB2D",
   "signingPayloadSHA256": "811294DB74A18AD695E986359E173E8889AC7368EFD532DA540B11FFF849682A"
 }
