@@ -5,6 +5,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: cadentide-ios-public-encrypted-build
@@ -17,7 +18,7 @@ jobs:
     timeout-minutes: 45
     env:
       CADENTIDE_MARKETING_VERSION: "4.4"
-      CADENTIDE_BUILD_NUMBER: "50"
+      CADENTIDE_BUILD_NUMBER: "51"
 
     defaults:
       run:
@@ -47,10 +48,26 @@ jobs:
           test -s signing/profile.mobileprovision
           test -s signing/credentials.json
 
+      - name: Require successful source-only native verification
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VERIFIED_RUN="$(python3 -c "import json; print(json.load(open('SOURCE_PROVENANCE.json'))['verifiedNativeRun'])")"
+          gh run view "$VERIFIED_RUN" --repo "$GITHUB_REPOSITORY" --json status,conclusion,headSha > "$RUNNER_TEMP/verified-run.json"
+          python3 - "$RUNNER_TEMP/verified-run.json" <<'PY'
+          import json, sys
+          provenance = json.load(open('SOURCE_PROVENANCE.json'))
+          run = json.load(open(sys.argv[1]))
+          assert run['status'] == 'completed' and run['conclusion'] == 'success'
+          assert run['headSha'] == provenance['verifiedNativeCommit']
+          PY
+
       - name: Install encrypted Cadentide 4.4 source
         working-directory: .
         env:
-          CADENTIDE_OVERLAY_SECRET: ${{ secrets.CADENTIDE_OVERLAY_SECRET_44_BUILD50 }}
+          CADENTIDE_OVERLAY_SECRET: ${{ secrets.CADENTIDE_SIZE_SPEED_TEST_SECRET_20260920 }}
         run: |
           set -euo pipefail
           test -n "$CADENTIDE_OVERLAY_SECRET"
@@ -73,7 +90,7 @@ jobs:
           manifest_path = root / 'SOURCE_MANIFEST.json'
           assert digest(manifest_path) == provenance['sourceManifestSHA256']
           manifest = json.loads(manifest_path.read_text())
-          assert manifest['build'] == 50 and manifest['version'] == '4.4'
+          assert manifest['build'] == 51 and manifest['version'] == '4.4'
           assert provenance['build'] == manifest['build'] and provenance['version'] == manifest['version']
           for entry in manifest['files']:
               path = (root / entry['path']).resolve()
@@ -111,6 +128,54 @@ jobs:
             grep -Eq "CURRENT_PROJECT_VERSION = ${CADENTIDE_BUILD_NUMBER}$" "$SETTINGS"
             grep -Eq 'IPHONEOS_DEPLOYMENT_TARGET = 17.0$' "$SETTINGS"
           done
+
+      - name: Run native unit tests
+        run: |
+          set -euo pipefail
+          if grep -R -nE '^import (StoreKit|AdSupport|AppTrackingTransparency|WebKit|Network)$|URLSession|GADMobileAds|FirebaseAnalytics|FBSDK|AppsFlyer|Adjust([[:space:]]|SDK|\.framework)' ios/Cadentide --include='*.swift'; then
+            echo "Unexpected network, advertising, tracking or commerce code found." >&2
+            exit 1
+          fi
+          grep -q '<key>NSPrivacyTracking</key>' ios/Cadentide/PrivacyInfo.xcprivacy
+          grep -A1 '<key>NSPrivacyTracking</key>' ios/Cadentide/PrivacyInfo.xcprivacy | grep -q '<false/>'
+          DEVICE_ID="$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/ && /(Shutdown|Booted)/ { print $2; exit }')"
+          test -n "$DEVICE_ID"
+          xcrun simctl boot "$DEVICE_ID" 2>/dev/null || true
+          xcrun simctl bootstatus "$DEVICE_ID" -b
+          mkdir -p build
+          xcodebuild test \
+            -project ios/Cadentide.xcodeproj \
+            -scheme Cadentide \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,id=$DEVICE_ID" \
+            -parallel-testing-enabled NO \
+            -resultBundlePath build/HardeningTests.xcresult \
+            -only-testing:CadentideTests/GameCoreTests/testLegacyEndlessCheckpointRebasesKillsWithoutInstantRewardsAndSurvivesRelaunch \
+            -only-testing:CadentideTests/GameCoreTests/testVersionedAndUnrelatedEndlessContractsKeepTheirExistingProgress \
+            -only-testing:CadentideTests/GameCoreTests/testLiveEquipSaveRoundtripPreservesOrderedVolleyAdmissionAtProjectileCap \
+            -only-testing:CadentideTests/GameCoreTests/testLegacyMedalSaveKeepsMeaningAndRewardsThroughUpgradeExportAndRelaunch \
+            CODE_SIGNING_ALLOWED=NO
+          xcodebuild test \
+            -project ios/Cadentide.xcodeproj \
+            -scheme Cadentide \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,id=$DEVICE_ID" \
+            -parallel-testing-enabled NO \
+            -resultBundlePath build/CadentideTests.xcresult \
+            CODE_SIGNING_ALLOWED=NO
+          xcrun xcresulttool get test-results summary --path build/HardeningTests.xcresult > build/hardening-test-summary.json
+          xcrun xcresulttool get test-results summary --path build/CadentideTests.xcresult > build/native-test-summary.json
+          EXPECTED_TESTS="$(grep -R -E '^[[:space:]]*func test' ios/CadentideTests --include='*.swift' | wc -l | tr -d ' ')"
+          test "$EXPECTED_TESTS" = "208"
+          ruby -rjson -e 's=JSON.parse(File.read(ARGV[0])); abort "Hardening test gate failed" unless s.fetch("passedTests") == 4 && s.fetch("failedTests") == 0 && s.fetch("skippedTests") == 0' build/hardening-test-summary.json
+          ruby -rjson -e 's=JSON.parse(File.read(ARGV[0])); abort "Native test count/failures mismatch" unless s.fetch("passedTests") == ARGV[1].to_i && s.fetch("failedTests") == 0 && s.fetch("skippedTests") == 0' build/native-test-summary.json "$EXPECTED_TESTS"
+
+      - name: Export native visual evidence
+        if: always()
+        run: |
+          if [ -d build/CadentideTests.xcresult ]; then
+            xcrun xcresulttool export attachments --path build/CadentideTests.xcresult --output-path build/visual-qa
+          fi
 
       - name: Install private signing identity
         env:
@@ -157,54 +222,6 @@ jobs:
             echo "CADENTIDE_TEAM_ID=$TEAM_ID"
             echo "CADENTIDE_SIGNING_IDENTITY=$SIGNING_IDENTITY"
           } >> "$GITHUB_ENV"
-
-      - name: Run native unit tests
-        run: |
-          set -euo pipefail
-          if grep -R -nE '^import (StoreKit|AdSupport|AppTrackingTransparency|WebKit|Network)$|URLSession|GADMobileAds|FirebaseAnalytics|FBSDK|AppsFlyer|Adjust([[:space:]]|SDK|\.framework)' ios/Cadentide --include='*.swift'; then
-            echo "Unexpected network, advertising, tracking or commerce code found." >&2
-            exit 1
-          fi
-          grep -q '<key>NSPrivacyTracking</key>' ios/Cadentide/PrivacyInfo.xcprivacy
-          grep -A1 '<key>NSPrivacyTracking</key>' ios/Cadentide/PrivacyInfo.xcprivacy | grep -q '<false/>'
-          DEVICE_ID="$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/ && /(Shutdown|Booted)/ { print $2; exit }')"
-          test -n "$DEVICE_ID"
-          xcrun simctl boot "$DEVICE_ID" 2>/dev/null || true
-          xcrun simctl bootstatus "$DEVICE_ID" -b
-          mkdir -p build
-          xcodebuild test \
-            -project ios/Cadentide.xcodeproj \
-            -scheme Cadentide \
-            -configuration Debug \
-            -destination "platform=iOS Simulator,id=$DEVICE_ID" \
-            -parallel-testing-enabled NO \
-            -resultBundlePath build/HardeningTests.xcresult \
-            -only-testing:CadentideTests/GameCoreTests/testLegacyEndlessCheckpointRebasesKillsWithoutInstantRewardsAndSurvivesRelaunch \
-            -only-testing:CadentideTests/GameCoreTests/testVersionedAndUnrelatedEndlessContractsKeepTheirExistingProgress \
-            -only-testing:CadentideTests/GameCoreTests/testLiveEquipSaveRoundtripPreservesOrderedVolleyAdmissionAtProjectileCap \
-            -only-testing:CadentideTests/GameCoreTests/testLegacyMedalSaveKeepsMeaningAndRewardsThroughUpgradeExportAndRelaunch \
-            CODE_SIGNING_ALLOWED=NO
-          xcodebuild test \
-            -project ios/Cadentide.xcodeproj \
-            -scheme Cadentide \
-            -configuration Debug \
-            -destination "platform=iOS Simulator,id=$DEVICE_ID" \
-            -parallel-testing-enabled NO \
-            -resultBundlePath build/CadentideTests.xcresult \
-            CODE_SIGNING_ALLOWED=NO
-          xcrun xcresulttool get test-results summary --path build/HardeningTests.xcresult > build/hardening-test-summary.json
-          xcrun xcresulttool get test-results summary --path build/CadentideTests.xcresult > build/native-test-summary.json
-          EXPECTED_TESTS="$(grep -R -E '^[[:space:]]*func test' ios/CadentideTests --include='*.swift' | wc -l | tr -d ' ')"
-          test "$EXPECTED_TESTS" = "201"
-          ruby -rjson -e 's=JSON.parse(File.read(ARGV[0])); abort "Hardening test gate failed" unless s.fetch("passedTests") == 4 && s.fetch("failedTests") == 0 && s.fetch("skippedTests") == 0' build/hardening-test-summary.json
-          ruby -rjson -e 's=JSON.parse(File.read(ARGV[0])); abort "Native test count/failures mismatch" unless s.fetch("passedTests") == ARGV[1].to_i && s.fetch("failedTests") == 0 && s.fetch("skippedTests") == 0' build/native-test-summary.json "$EXPECTED_TESTS"
-
-      - name: Export native visual evidence
-        if: always()
-        run: |
-          if [ -d build/CadentideTests.xcresult ]; then
-            xcrun xcresulttool export attachments --path build/CadentideTests.xcresult --output-path build/visual-qa
-          fi
 
       - name: Archive and export signed IPA
         run: |
@@ -290,7 +307,7 @@ jobs:
           do
             test -s "$APP_PATH/$SOUND"
           done
-          test -s "$APP_PATH/cadentide_ocean_floor_v1.png"
+          test ! -e "$APP_PATH/cadentide_ocean_floor_v1.png"
           codesign --verify --deep --strict --verbose=2 "$APP_PATH"
           security cms -D -i "$APP_PATH/embedded.mobileprovision" > "$CHECK_DIR/profile.plist"
           /usr/libexec/PlistBuddy -c 'Print :ProvisionedDevices' "$CHECK_DIR/profile.plist" | \
@@ -300,15 +317,32 @@ jobs:
           codesign -d --entitlements :- "$APP_PATH" > "$CHECK_DIR/app-entitlements.plist" 2>/dev/null
           APPLICATION_ID="$(/usr/libexec/PlistBuddy -c 'Print :application-identifier' "$CHECK_DIR/app-entitlements.plist")"
           test "$APPLICATION_ID" = "582X9U27VU.com.hzproductionz432.cadentide"
-          python3 - "$CHECK_DIR/profile.plist" "$CHECK_DIR/app-entitlements.plist" "$APP_PATH/Info.plist" <<'PY'
-          import datetime, plistlib, sys
-          profile, entitlements, info = [plistlib.load(open(path, 'rb')) for path in sys.argv[1:]]
-          assert profile['ExpirationDate'] > datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+          codesign -d --extract-certificates "$CHECK_DIR/signer" "$APP_PATH" 2>/dev/null
+          python3 - "$CHECK_DIR/profile.plist" "$CHECK_DIR/app-entitlements.plist" "$APP_PATH/Info.plist" "$CHECK_DIR/signer0" <<'PY'
+          import datetime, hashlib, json, pathlib, plistlib, subprocess, sys
+          profile, entitlements, info = [plistlib.load(open(path, 'rb')) for path in sys.argv[1:4]]
+          now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+          assert profile['ExpirationDate'] > now
           assert profile['Entitlements'].get('get-task-allow', False) is False
           assert entitlements.get('get-task-allow', False) is False
           assert not profile.get('ProvisionsAllDevices', False)
           assert info['MinimumOSVersion'] == '17.0'
-          print('Profile validity, release entitlements and minimum iOS verified')
+          certificate = pathlib.Path(sys.argv[4]).read_bytes()
+          assert certificate in profile['DeveloperCertificates'], 'App signer does not match provisioning'
+          dates = subprocess.check_output(['openssl', 'x509', '-inform', 'DER', '-in', sys.argv[4], '-noout', '-startdate', '-enddate'], text=True)
+          parsed = dict(line.split('=', 1) for line in dates.strip().splitlines())
+          valid_from, valid_until = [datetime.datetime.strptime(parsed[key], '%b %d %H:%M:%S %Y %Z') for key in ['notBefore', 'notAfter']]
+          assert valid_from <= now < valid_until, 'Signing certificate is not currently valid'
+          ipa = pathlib.Path('build/Cadentide.ipa').read_bytes()
+          report = dict(checkedAtUTC=now.isoformat()+'Z', build=info['CFBundleVersion'],
+                        version=info['CFBundleShortVersionString'], bundle=info['CFBundleIdentifier'],
+                        ipaBytes=len(ipa), ipaSHA256=hashlib.sha256(ipa).hexdigest().upper(),
+                        codesignStrict='passed', releaseEntitlements='passed', registeredDevice='passed',
+                        certificateMatchesProfile=True, certificateValidFromUTC=valid_from.isoformat()+'Z',
+                        certificateValidUntilUTC=valid_until.isoformat()+'Z', profileExpiresUTC=profile['ExpirationDate'].isoformat()+'Z',
+                        certificateRevocation='not independently verified', physicalIPhoneQA='not performed')
+          pathlib.Path('build/signing-verification.json').write_text(json.dumps(report, indent=2)+'\n')
+          print('Profile and certificate validity, signer match, release entitlements and minimum iOS verified')
           PY
           echo "Verified Cadentide ${CADENTIDE_MARKETING_VERSION} (${CADENTIDE_BUILD_NUMBER}) for the registered iPhone."
 
@@ -321,45 +355,12 @@ jobs:
           retention-days: 3
           compression-level: 0
 
-      - name: Create iPhone installation link
-        run: |
-          set -euo pipefail
-          HOME_PAGE="$(mktemp)"
-          curl --fail --silent --show-error --location \
-            https://www.installonair.com/ > "$HOME_PAGE"
-          CSRF_TOKEN="$(node -e "const fs=require('fs'); const html=fs.readFileSync(process.argv[1], 'utf8'); const match=html.match(/<meta name=[\"']csrf-token[\"'] content=[\"']([^\"']+)[\"']/i); if (!match) process.exit(1); process.stdout.write(match[1]);" "$HOME_PAGE")"
-
-          curl --fail-with-body --silent --show-error --location \
-            -H "Accept: application/json" \
-            -H "X-Requested-With: XMLHttpRequest" \
-            -H "X-CSRF-TOKEN: $CSRF_TOKEN" \
-            -H "Origin: https://www.installonair.com" \
-            -H "Referer: https://www.installonair.com/" \
-            -F "_token=$CSRF_TOKEN" \
-            -F "ajax=1" \
-            -F "user_id=0" \
-            -F "ipafile=@build/Cadentide.ipa;type=application/octet-stream" \
-            https://fupload.installonair.com/ipafile > build/installonair-upload.json
-
-          INSTALL_URL="$(ruby -rjson -e 'result=JSON.parse(File.read(ARGV[0])); link=result.dig("data", "link"); abort JSON.generate(result) unless result["status"] && link&.match?(/\Ahttps:\/\//); print link' build/installonair-upload.json)"
-          INSTALL_URL="$INSTALL_URL" ruby -rjson -e 'File.write(ARGV[0], JSON.pretty_generate({provider: "InstallOnAir", url: ENV.fetch("INSTALL_URL")}) + "\n")' build/install-link.json
-          {
-            echo "## Cadentide ${CADENTIDE_MARKETING_VERSION} voor iPhone"
-            echo
-            echo "Open deze installatiepagina op de geregistreerde iPhone:"
-            echo
-            echo "[$INSTALL_URL]($INSTALL_URL)"
-          } >> "$GITHUB_STEP_SUMMARY"
-          echo "Cadentide installation page: $INSTALL_URL"
-
       - name: Create release manifest
         run: |
           set -euo pipefail
           test -s build/Cadentide.ipa
-          test -s build/install-link.json
           IPA_SIZE="$(stat -f '%z' build/Cadentide.ipa)"
           IPA_SHA256="$(shasum -a 256 build/Cadentide.ipa | awk '{print $1}')"
-          INSTALL_URL="$(ruby -rjson -e 'print JSON.parse(File.read(ARGV[0])).fetch("url")' build/install-link.json)"
           TEST_COUNT="$(ruby -rjson -e 'print JSON.parse(File.read(ARGV[0])).fetch("passedTests")' build/native-test-summary.json)"
           cat > build/RELEASE_MANIFEST.md <<MANIFEST
           # Cadentide ${CADENTIDE_MARKETING_VERSION} build ${CADENTIDE_BUILD_NUMBER}
@@ -374,16 +375,17 @@ jobs:
           - Minimum iOS: 17.0
           - Signed ad-hoc: verified
           - Registered iPhone profile: verified
-          - Install URL: ${INSTALL_URL}
+          - Installer publication: separate HTTPS page/manifest/IPA verification required
+          - Physical iPhone QA: not performed
           MANIFEST
           cat build/RELEASE_MANIFEST.md >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload installation metadata
+      - name: Upload release verification metadata
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cadentide-ios-install
           path: |
-            products/cadentide/build/install-link.json
+            products/cadentide/build/signing-verification.json
             products/cadentide/build/RELEASE_MANIFEST.md
             products/cadentide/build/native-test-summary.json
             products/cadentide/build/hardening-test-summary.json
