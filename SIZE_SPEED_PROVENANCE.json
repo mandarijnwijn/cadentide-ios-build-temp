@@ -1,0 +1,8 @@
+{
+  "version": "4.4",
+  "build": 50,
+  "sourceFileCount": 43,
+  "sourceManifestSHA256": "C24BF91CB7C790D90EDEE81539722155DC5D505BF2E41B00B8C795B48A3E8C60",
+  "encryptedOverlaySHA256": "B9E05321BEFC69B4B1CF2DBDBF10D13E509E3E5DCA35E23DFAB958D3D3538EAB",
+  "purpose": "Unsigned simulator verification only; no signing/deployment/install link"
+}
