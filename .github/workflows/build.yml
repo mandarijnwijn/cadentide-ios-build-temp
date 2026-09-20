@@ -55,13 +55,18 @@ jobs:
         run: |
           set -euo pipefail
           VERIFIED_RUN="$(python3 -c "import json; print(json.load(open('SOURCE_PROVENANCE.json'))['verifiedNativeRun'])")"
+          VERIFIED_COMMIT="$(python3 -c "import json; print(json.load(open('SOURCE_PROVENANCE.json'))['verifiedNativeCommit'])")"
           gh run view "$VERIFIED_RUN" --repo "$GITHUB_REPOSITORY" --json status,conclusion,headSha > "$RUNNER_TEMP/verified-run.json"
-          python3 - "$RUNNER_TEMP/verified-run.json" <<'PY'
+          gh api -H 'Accept: application/vnd.github.raw+json' "repos/$GITHUB_REPOSITORY/contents/SIZE_SPEED_PROVENANCE.json?ref=$VERIFIED_COMMIT" > "$RUNNER_TEMP/verified-source.json"
+          python3 - "$RUNNER_TEMP/verified-run.json" "$RUNNER_TEMP/verified-source.json" <<'PY'
           import json, sys
           provenance = json.load(open('SOURCE_PROVENANCE.json'))
           run = json.load(open(sys.argv[1]))
           assert run['status'] == 'completed' and run['conclusion'] == 'success'
           assert run['headSha'] == provenance['verifiedNativeCommit']
+          verified_source = json.load(open(sys.argv[2]))
+          for key in ['version', 'build', 'sourceFileCount', 'sourceManifestSHA256', 'encryptedOverlaySHA256']:
+              assert verified_source[key] == provenance[key], 'Release differs from native-tested source: ' + key
           PY
 
       - name: Install encrypted Cadentide 4.4 source
