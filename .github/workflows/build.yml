@@ -314,15 +314,21 @@ jobs:
           done
           test ! -e "$APP_PATH/cadentide_ocean_floor_v1.png"
           codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+          echo 'Strict application signature verified'
           security cms -D -i "$APP_PATH/embedded.mobileprovision" > "$CHECK_DIR/profile.plist"
           /usr/libexec/PlistBuddy -c 'Print :ProvisionedDevices' "$CHECK_DIR/profile.plist" | \
             grep -q '00008150-000471841A41401C'
           TEAM_ID="$(/usr/libexec/PlistBuddy -c 'Print :TeamIdentifier:0' "$CHECK_DIR/profile.plist")"
           test "$TEAM_ID" = "582X9U27VU"
-          codesign -d --entitlements :- "$APP_PATH" > "$CHECK_DIR/app-entitlements.plist" 2>/dev/null
+          echo 'Registered-device provisioning and team verified'
+          codesign -d --entitlements :- "$APP_PATH" > "$CHECK_DIR/app-entitlements.plist"
           APPLICATION_ID="$(/usr/libexec/PlistBuddy -c 'Print :application-identifier' "$CHECK_DIR/app-entitlements.plist")"
           test "$APPLICATION_ID" = "582X9U27VU.com.hzproductionz432.cadentide"
-          codesign -d --extract-certificates "$CHECK_DIR/signer" "$APP_PATH" 2>/dev/null
+          echo 'Application entitlement identity verified'
+          # The optional prefix must be bound to this long option, not parsed as another code path.
+          codesign -d --extract-certificates="$CHECK_DIR/signer" "$APP_PATH"
+          test -s "$CHECK_DIR/signer0"
+          echo 'Leaf signing certificate extracted'
           python3 - "$CHECK_DIR/profile.plist" "$CHECK_DIR/app-entitlements.plist" "$APP_PATH/Info.plist" "$CHECK_DIR/signer0" <<'PY'
           import datetime, hashlib, json, pathlib, plistlib, subprocess, sys
           profile, entitlements, info = [plistlib.load(open(path, 'rb')) for path in sys.argv[1:4]]
