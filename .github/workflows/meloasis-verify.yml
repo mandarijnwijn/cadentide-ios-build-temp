@@ -54,6 +54,7 @@ jobs:
           test -n "$DEVICE_ID"
           xcrun simctl boot "$DEVICE_ID" 2>/dev/null || true
           xcrun simctl bootstatus "$DEVICE_ID" -b
+          printf '%s' "$DEVICE_ID" > "$RUNNER_TEMP/meloasis-simulator-device-id"
           mkdir -p evidence "$RUNNER_TEMP/meloasis-private-evidence"
           xcrun simctl list devices available > evidence/simulators.txt
           xcodebuild test -project products/cadentide/ios/Cadentide.xcodeproj -scheme Cadentide -configuration Debug -destination "platform=iOS Simulator,id=$DEVICE_ID" -parallel-testing-enabled NO -derivedDataPath "$RUNNER_TEMP/DerivedData" -resultBundlePath "$RUNNER_TEMP/meloasis-private-evidence/Tests.xcresult" CODE_SIGNING_ALLOWED=NO > "$RUNNER_TEMP/meloasis-private-evidence/native-build.log" 2>&1 || { echo 'Native build/tests failed; private encrypted diagnostics will be preserved.'; exit 1; }
@@ -68,6 +69,19 @@ jobs:
           assert results['passedTests'] == expected and results['failedTests'] == results['skippedTests'] == 0
           print('Full native gate passed:', expected, 'tests; zero failed or skipped')
           PY
+      - name: Capture actual light and dark app launch screens
+        run: |
+          set -euo pipefail
+          DEVICE_ID="$(cat "$RUNNER_TEMP/meloasis-simulator-device-id")"
+          PRIVATE="$RUNNER_TEMP/meloasis-private-evidence"
+          mkdir -p "$PRIVATE/app-launch"
+          for APPEARANCE in light dark; do
+            xcrun simctl terminate "$DEVICE_ID" com.hzproductionz432.cadentide 2>/dev/null || true
+            xcrun simctl ui "$DEVICE_ID" appearance "$APPEARANCE"
+            xcrun simctl launch "$DEVICE_ID" com.hzproductionz432.cadentide > "$PRIVATE/app-launch/launch-$APPEARANCE.log" 2>&1
+            sleep 3
+            xcrun simctl io "$DEVICE_ID" screenshot "$PRIVATE/app-launch/meloasis-launch-$APPEARANCE.png"
+          done
       - name: Preserve encrypted diagnostics and visual evidence
         if: always()
         env:
