@@ -1,0 +1,14 @@
+{
+  "version": "4.5",
+  "build": 52,
+  "baseCommit": "181352ad00226fe3ec011861eba4dab04a0ffbe7",
+  "verificationStrategy": "Root approval and actual visual review; exact encrypted native-tested source; repeated full native and four save hardening tests before signing",
+  "verifiedNativeRun": 35795411177,
+  "verifiedNativeCommit": "8dc54062b84bcdac1f47c83b98e005f799de2e27",
+  "expectedNativeTests": 218,
+  "sourceFileCount": 43,
+  "encryptedOverlaySHA256": "1387C1E8D29B2A1C39DCE8BA7B56ED18A075D213CEB3C97C65E73117EF5880E0",
+  "signingPayloadSHA256": "811294DB74A18AD695E986359E173E8889AC7368EFD532DA540B11FFF849682A",
+  "visualEvidenceReviewed": true,
+  "preparationOnly": false
+}
