@@ -1,0 +1,106 @@
+name: Unsigned Meloasis build 53 verification
+on:
+  push:
+    branches: [codex/meloasis-4.5-build53-verify]
+    paths: [meloasis-source-build53.enc, MELOASIS_BUILD53_PROVENANCE.json, .github/workflows/meloasis-build53-verify.yml]
+permissions:
+  contents: read
+concurrency:
+  group: meloasis-build53-native-tests
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: macos-26
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Decrypt and verify source only
+        env:
+          SOURCE_KEY: ${{ secrets.MELOASIS_SOURCE_VERIFY_45_BUILD52_20260923 }}
+        run: |
+          set -euo pipefail
+          test -n "$SOURCE_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in meloasis-source-build53.enc -out "$RUNNER_TEMP/source.zip" -pass env:SOURCE_KEY
+          unzip -q "$RUNNER_TEMP/source.zip"
+          python3 - <<'PY'
+          import hashlib, json, pathlib
+          digest = lambda p: hashlib.sha256(p.read_bytes()).hexdigest().upper()
+          provenance = json.loads(pathlib.Path('MELOASIS_BUILD53_PROVENANCE.json').read_text())
+          assert provenance['version'] == '4.5' and provenance['build'] == 53
+          assert digest(pathlib.Path('meloasis-source-build53.enc')) == provenance['encryptedOverlaySHA256']
+          root = pathlib.Path('products/cadentide/ios').resolve()
+          data = json.loads((root / 'SOURCE_MANIFEST.json').read_text())
+          assert data['version'] == provenance['version'] and data['build'] == provenance['build']
+          assert data['expectedNativeTests'] == provenance['expectedNativeTests']
+          assert len(data['files']) == provenance['sourceFileCount']
+          for entry in data['files']:
+              file = (root / entry['path']).resolve()
+              assert file.is_relative_to(root) and file.stat().st_size == entry['bytes']
+              assert digest(file) == entry['sha256']
+          assert not pathlib.Path('signing').exists()
+          assert not list(root.rglob('*.p12')) and not list(root.rglob('*.mobileprovision'))
+          print('Encrypted source verified:', len(data['files']), 'files; no plaintext source hashes published')
+          PY
+      - name: Native simulator build and full tests
+        run: |
+          set -euo pipefail
+          XCODE_APP="$(find /Applications -maxdepth 1 -type d -name 'Xcode_26*.app' | sort | tail -n 1)"
+          test -n "$XCODE_APP"
+          sudo xcode-select -s "$XCODE_APP/Contents/Developer"
+          xcodebuild -version
+          DEVICE_ID="$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/ && /(Shutdown|Booted)/ { print $2; exit }')"
+          test -n "$DEVICE_ID"
+          xcrun simctl boot "$DEVICE_ID" 2>/dev/null || true
+          xcrun simctl bootstatus "$DEVICE_ID" -b
+          printf '%s' "$DEVICE_ID" > "$RUNNER_TEMP/meloasis-simulator-device-id"
+          mkdir -p evidence "$RUNNER_TEMP/meloasis-private-evidence"
+          xcrun simctl list devices available > evidence/simulators.txt
+          xcodebuild test -project products/cadentide/ios/Cadentide.xcodeproj -scheme Cadentide -configuration Debug -destination "platform=iOS Simulator,id=$DEVICE_ID" -parallel-testing-enabled NO -derivedDataPath "$RUNNER_TEMP/DerivedData" -resultBundlePath "$RUNNER_TEMP/meloasis-private-evidence/Tests.xcresult" CODE_SIGNING_ALLOWED=NO > "$RUNNER_TEMP/meloasis-private-evidence/native-build.log" 2>&1 || { echo 'Native build/tests failed; private encrypted diagnostics will be preserved.'; exit 1; }
+          xcrun xcresulttool get test-results summary --path "$RUNNER_TEMP/meloasis-private-evidence/Tests.xcresult" > evidence/tests.json
+          EXPECTED_TESTS="$(grep -R -E '^[[:space:]]*func test' products/cadentide/ios/CadentideTests --include='*.swift' | wc -l | tr -d ' ')"
+          python3 - "$EXPECTED_TESTS" <<'PY'
+          import json, sys
+          receipt = json.load(open('MELOASIS_BUILD53_PROVENANCE.json'))
+          results = json.load(open('evidence/tests.json'))
+          expected = int(sys.argv[1])
+          assert expected >= 218 and expected == receipt['expectedNativeTests']
+          assert results['passedTests'] == expected and results['failedTests'] == results['skippedTests'] == 0
+          print('Full native gate passed:', expected, 'tests; zero failed or skipped')
+          PY
+      - name: Capture actual light and dark app launch screens
+        run: |
+          set -euo pipefail
+          DEVICE_ID="$(cat "$RUNNER_TEMP/meloasis-simulator-device-id")"
+          PRIVATE="$RUNNER_TEMP/meloasis-private-evidence"
+          mkdir -p "$PRIVATE/app-launch"
+          for APPEARANCE in light dark; do
+            xcrun simctl terminate "$DEVICE_ID" com.hzproductionz432.cadentide 2>/dev/null || true
+            xcrun simctl ui "$DEVICE_ID" appearance "$APPEARANCE"
+            xcrun simctl launch "$DEVICE_ID" com.hzproductionz432.cadentide > "$PRIVATE/app-launch/launch-$APPEARANCE.log" 2>&1
+            sleep 3
+            xcrun simctl io "$DEVICE_ID" screenshot "$PRIVATE/app-launch/meloasis-launch-$APPEARANCE.png"
+          done
+      - name: Preserve encrypted diagnostics and visual evidence
+        if: always()
+        env:
+          SOURCE_KEY: ${{ secrets.MELOASIS_SOURCE_VERIFY_45_BUILD52_20260923 }}
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          RESULTS="$RUNNER_TEMP/meloasis-private-evidence/Tests.xcresult"
+          if [ -d "$RESULTS" ]; then
+            xcrun xcresulttool get test-results summary --path "$RESULTS" > "$RUNNER_TEMP/meloasis-private-evidence/test-summary.json" || true
+            xcrun xcresulttool export attachments --path "$RESULTS" --output-path "$RUNNER_TEMP/meloasis-private-evidence/attachments" || true
+          fi
+          if [ -d "$RUNNER_TEMP/meloasis-private-evidence" ]; then
+            ditto -c -k --keepParent "$RUNNER_TEMP/meloasis-private-evidence" "$RUNNER_TEMP/meloasis-private-evidence.zip"
+            openssl enc -aes-256-cbc -salt -pbkdf2 -iter 200000 -in "$RUNNER_TEMP/meloasis-private-evidence.zip" -out evidence/native-evidence-build53.enc -pass env:SOURCE_KEY
+          fi
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: meloasis-build53-verification
+          path: evidence
+          retention-days: 7
