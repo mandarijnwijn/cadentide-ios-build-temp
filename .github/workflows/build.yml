@@ -1,4 +1,4 @@
-name: Build Meloasis iPhone IPA
+name: Build Meloasis build 53 iPhone IPA
 
 on:
   workflow_dispatch:
@@ -25,7 +25,7 @@ jobs:
     timeout-minutes: 45
     env:
       CADENTIDE_MARKETING_VERSION: "4.5"
-      CADENTIDE_BUILD_NUMBER: "52"
+      CADENTIDE_BUILD_NUMBER: "53"
 
     defaults:
       run:
@@ -43,12 +43,12 @@ jobs:
         run: |
           python3 - <<'PY'
           import json
-          receipt = json.load(open('MELOASIS_RELEASE_PROVENANCE.json'))
-          assert receipt['version'] == '4.5' and receipt['build'] == 52
+          receipt = json.load(open('MELOASIS_BUILD53_RELEASE_PROVENANCE.json'))
+          assert receipt['version'] == '4.5' and receipt['build'] == 53
           assert receipt['verifiedNativeRun'] > 0
           assert len(receipt['verifiedNativeCommit']) == 40
           assert len(receipt['encryptedOverlaySHA256']) == 64
-          assert receipt['expectedNativeTests'] >= 208
+          assert receipt['expectedNativeTests'] >= 218
           assert receipt['visualEvidenceReviewed'] is True
           PY
 
@@ -58,13 +58,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          VERIFIED_RUN="$(python3 -c "import json; print(json.load(open('MELOASIS_RELEASE_PROVENANCE.json'))['verifiedNativeRun'])")"
-          VERIFIED_COMMIT="$(python3 -c "import json; print(json.load(open('MELOASIS_RELEASE_PROVENANCE.json'))['verifiedNativeCommit'])")"
+          VERIFIED_RUN="$(python3 -c "import json; print(json.load(open('MELOASIS_BUILD53_RELEASE_PROVENANCE.json'))['verifiedNativeRun'])")"
+          VERIFIED_COMMIT="$(python3 -c "import json; print(json.load(open('MELOASIS_BUILD53_RELEASE_PROVENANCE.json'))['verifiedNativeCommit'])")"
           gh run view "$VERIFIED_RUN" --repo "$GITHUB_REPOSITORY" --json status,conclusion,headSha > "$RUNNER_TEMP/verified-run.json"
-          gh api -H 'Accept: application/vnd.github.raw+json' "repos/$GITHUB_REPOSITORY/contents/MELOASIS_PROVENANCE.json?ref=$VERIFIED_COMMIT" > "$RUNNER_TEMP/verified-source.json"
+          gh api -H 'Accept: application/vnd.github.raw+json' "repos/$GITHUB_REPOSITORY/contents/MELOASIS_BUILD53_PROVENANCE.json?ref=$VERIFIED_COMMIT" > "$RUNNER_TEMP/verified-source.json"
           python3 - "$RUNNER_TEMP/verified-run.json" "$RUNNER_TEMP/verified-source.json" <<'PY'
           import json, sys
-          provenance = json.load(open('MELOASIS_RELEASE_PROVENANCE.json'))
+          provenance = json.load(open('MELOASIS_BUILD53_RELEASE_PROVENANCE.json'))
           run = json.load(open(sys.argv[1]))
           assert run['status'] == 'completed' and run['conclusion'] == 'success'
           assert run['headSha'] == provenance['verifiedNativeCommit']
@@ -81,7 +81,7 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           import hashlib, json, pathlib
-          receipt = json.load(open('MELOASIS_RELEASE_PROVENANCE.json'))
+          receipt = json.load(open('MELOASIS_BUILD53_RELEASE_PROVENANCE.json'))
           assert hashlib.sha256(pathlib.Path('cadentide-project.enc').read_bytes()).hexdigest().upper() == receipt['signingPayloadSHA256']
           PY
           test -n "$CADENTIDE_ARCHIVE_SECRET"
@@ -102,25 +102,25 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$CADENTIDE_OVERLAY_SECRET"
-          test -s meloasis-source-build52.enc
+          test -s meloasis-source-build53.enc
           OVERLAY_ARCHIVE="$RUNNER_TEMP/cadentide-source-overlay.zip"
           OVERLAY_ROOT="$RUNNER_TEMP/cadentide-source-overlay"
           openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
-            -in meloasis-source-build52.enc \
+            -in meloasis-source-build53.enc \
             -out "$OVERLAY_ARCHIVE" \
             -pass env:CADENTIDE_OVERLAY_SECRET
           mkdir -p "$OVERLAY_ROOT"
           unzip -q "$OVERLAY_ARCHIVE" -d "$OVERLAY_ROOT"
           OVERLAY_ROOT="$OVERLAY_ROOT" python3 - <<'PY'
           import hashlib, json, os, pathlib
-          provenance = json.loads(pathlib.Path('MELOASIS_RELEASE_PROVENANCE.json').read_text())
+          provenance = json.loads(pathlib.Path('MELOASIS_BUILD53_RELEASE_PROVENANCE.json').read_text())
           digest = lambda p: hashlib.sha256(p.read_bytes()).hexdigest().upper()
-          assert digest(pathlib.Path('meloasis-source-build52.enc')) == provenance['encryptedOverlaySHA256']
+          assert digest(pathlib.Path('meloasis-source-build53.enc')) == provenance['encryptedOverlaySHA256']
           assert digest(pathlib.Path('cadentide-project.enc')) == provenance['signingPayloadSHA256']
           root = pathlib.Path(os.environ['OVERLAY_ROOT']) / 'products/cadentide/ios'
           manifest_path = root / 'SOURCE_MANIFEST.json'
           manifest = json.loads(manifest_path.read_text())
-          assert manifest['build'] == 52 and manifest['version'] == '4.5'
+          assert manifest['build'] == 53 and manifest['version'] == '4.5'
           assert provenance['build'] == manifest['build'] and provenance['version'] == manifest['version']
           assert provenance['expectedNativeTests'] == manifest['expectedNativeTests']
           assert len(manifest['files']) == provenance['sourceFileCount']
@@ -198,9 +198,9 @@ jobs:
           xcrun xcresulttool get test-results summary --path build/HardeningTests.xcresult > build/hardening-test-summary.json
           xcrun xcresulttool get test-results summary --path build/CadentideTests.xcresult > build/native-test-summary.json
           EXPECTED_TESTS="$(grep -R -E '^[[:space:]]*func test' ios/CadentideTests --include='*.swift' | wc -l | tr -d ' ')"
-          RECEIPT_TESTS="$(python3 -c "import json; print(json.load(open('../../MELOASIS_RELEASE_PROVENANCE.json'))['expectedNativeTests'])")"
+          RECEIPT_TESTS="$(python3 -c "import json; print(json.load(open('../../MELOASIS_BUILD53_RELEASE_PROVENANCE.json'))['expectedNativeTests'])")"
           test "$EXPECTED_TESTS" = "$RECEIPT_TESTS"
-          test "$EXPECTED_TESTS" -ge 208
+          test "$EXPECTED_TESTS" -ge 218
           ruby -rjson -e 's=JSON.parse(File.read(ARGV[0])); abort "Hardening test gate failed" unless s.fetch("passedTests") == 4 && s.fetch("failedTests") == 0 && s.fetch("skippedTests") == 0' build/hardening-test-summary.json
           ruby -rjson -e 's=JSON.parse(File.read(ARGV[0])); abort "Native test count/failures mismatch" unless s.fetch("passedTests") == ARGV[1].to_i && s.fetch("failedTests") == 0 && s.fetch("skippedTests") == 0' build/native-test-summary.json "$EXPECTED_TESTS"
 
@@ -447,13 +447,13 @@ jobs:
             fi
           done
           ditto -c -k --keepParent "$PRIVATE" "$RUNNER_TEMP/meloasis-release-evidence.zip"
-          openssl enc -aes-256-cbc -salt -pbkdf2 -iter 200000 -in "$RUNNER_TEMP/meloasis-release-evidence.zip" -out build/meloasis-release-evidence-build52.enc -pass env:SOURCE_KEY
+          openssl enc -aes-256-cbc -salt -pbkdf2 -iter 200000 -in "$RUNNER_TEMP/meloasis-release-evidence.zip" -out build/meloasis-release-evidence-build53.enc -pass env:SOURCE_KEY
 
       - name: Preserve encrypted native test results
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: meloasis-native-test-results
-          path: products/cadentide/build/meloasis-release-evidence-build52.enc
+          path: products/cadentide/build/meloasis-release-evidence-build53.enc
           if-no-files-found: ignore
           retention-days: 7
