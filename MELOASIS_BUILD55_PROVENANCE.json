@@ -3,6 +3,6 @@
   "build": 55,
   "sourceFileCount": 49,
   "expectedNativeTests": 249,
-  "encryptedOverlaySHA256": "18C7428EACEE84BA6901F3B873C8AF0CB28DE47F4D5D167C43004C334E922204",
+  "encryptedOverlaySHA256": "34B0BA3C48EB7089A3F8FD7F2ADBD5D9DEC37B8BAA4C9757E3587CAFB4EB3D66",
   "purpose": "Source-only Meloasis native verification; plaintext source and source hashes stay private"
 }
