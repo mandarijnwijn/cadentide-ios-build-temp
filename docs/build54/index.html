@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="cadentide-build" content="55">
+  <meta name="cadentide-build" content="54">
   <meta name="color-scheme" content="light dark">
   <meta name="robots" content="noindex,nofollow">
   <title>Meloasis bijwerken</title>
@@ -24,22 +24,12 @@
 <body>
   <main>
     <h1>Meloasis bijwerken</h1>
-    <p class="version">Versie 4.5 · build 55</p>
+    <p class="version">Versie 4.5 · build 54</p>
     <p>Open deze pagina in <strong>Safari op je iPhone</strong>. Tik op de knop en bevestig de installatiemelding van iOS.</p>
-    <a class="install" id="install" href="itms-services://?action=download-manifest&amp;url=https%3A%2F%2Fmandarijnwijn.github.io%2Fcadentide-ios-build-temp%2Fmanifest-build55.xml">Meloasis bijwerken</a>
-    <p class="note">Verwijder de bestaande app niet. Deze update gebruikt dezelfde app-identiteit, zodat je opgeslagen voortgang behouden kan blijven.</p>
+    <a class="install" id="install" href="itms-services://?action=download-manifest&amp;url=https%3A%2F%2Fmandarijnwijn.github.io%2Fcadentide-ios-build-temp%2Fmanifest-build54.xml">Meloasis bijwerken</a>
+    <p class="note">Cadentide heet nu Meloasis. Verwijder de bestaande app niet. Deze update gebruikt dezelfde app-identiteit en bewaart je voortgang.</p>
     <p class="note">Dit is voor de eerder geregistreerde iPhone. Geen account, creditcard of extra installatie-app nodig.</p>
-    <footer>Elk vastgehouden wapen gebruikt één hand. Meer afwisseling in missies, gebiedsbazen, zichtbaar waterherstel en minder herhaalde berekeningen tijdens het spelen. De schetsstijl en besturing blijven behouden.</footer>
+    <footer>Begin de eerste missie met een kort stripverhaal over de waterroof. De meloen schiet razendsnelle zwarte pitten uit zijn mond. Het bovenaanzicht, speelveld en de besturing blijven hetzelfde.</footer>
   </main>
-  <script>
-    const requestedBuild = new URLSearchParams(location.search).get('build');
-    if (requestedBuild === '54') {
-      location.replace(new URL('build54/', location.href));
-    } else if (requestedBuild && requestedBuild !== '55') {
-      const install = document.getElementById('install');
-      install.removeAttribute('href');
-      install.textContent = 'Deze versie is hier niet beschikbaar';
-    }
-  </script>
 </body>
 </html>
