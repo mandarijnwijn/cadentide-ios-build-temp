@@ -1,0 +1,12 @@
+{
+  "version": "4.5",
+  "build": 56,
+  "sourceFileCount": 50,
+  "expectedNativeTests": 259,
+  "encryptedOverlaySHA256": "026C51469AC7EF31DCFEDC433954DBF9360D6623AAA5BB24F6AD4C5B0774B557",
+  "verifiedNativeRun": 37445739675,
+  "verifiedNativeCommit": "9b7dc94c0b92a4a511ac22ffc46f425c33e1d401",
+  "visualEvidenceReviewed": true,
+  "signingPayloadSHA256": "811294DB74A18AD695E986359E173E8889AC7368EFD532DA540B11FFF849682A",
+  "purpose": "Exact 10/10 targeted and 259/259 full native PASS; direct mission-18 transition and light/dark launch images reviewed. User authorized repair, signing and publication on 6 October 2026. Physical iPhone acceptance remains separate."
+}

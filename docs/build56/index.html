@@ -6,9 +6,9 @@
   <meta name="cadentide-build" content="56">
   <meta name="color-scheme" content="light dark">
   <meta name="robots" content="noindex,nofollow">
-  <title>Meloasis bijwerken</title>
+  <title>Meloasis bijwerken · build 56</title>
   <style>
-    :root { color-scheme: light dark; --paper:#efe2c6; --ink:#302d24; }
+    :root { color-scheme:light dark; --paper:#efe2c6; --ink:#302d24; }
     @media (prefers-color-scheme:dark) { :root { --paper:#302d24; --ink:#efe2c6; } }
     * { box-sizing:border-box; }
     body { margin:0; padding:max(28px,env(safe-area-inset-top)) 22px max(28px,env(safe-area-inset-bottom)); background:var(--paper); color:var(--ink); font:18px/1.55 system-ui,-apple-system,sans-serif; }
@@ -28,18 +28,8 @@
     <p>Open deze pagina in <strong>Safari op je iPhone</strong>. Tik op de knop en bevestig de installatiemelding van iOS.</p>
     <a class="install" id="install" href="itms-services://?action=download-manifest&amp;url=https%3A%2F%2Fmandarijnwijn.github.io%2Fcadentide-ios-build-temp%2Fmanifest-build56.xml">Meloasis bijwerken</a>
     <p class="note">Verwijder de bestaande app niet. Deze update gebruikt dezelfde app-identiteit, zodat je opgeslagen voortgang behouden kan blijven.</p>
-    <p class="note">Dit is voor de eerder geregistreerde iPhone. Geen account, creditcard of extra installatie-app nodig.</p>
+    <p class="note">Voor de eerder geregistreerde iPhone. Geen account, creditcard of extra installatie-app nodig.</p>
     <footer>Na een voltooide missie start ‘Volgende missie’ meteen de opvolgende missie, zonder eerst door de campagnekaart te bladeren. De schetsstijl, besturing en bestaande spelfuncties blijven behouden.</footer>
   </main>
-  <script>
-    const requestedBuild = new URLSearchParams(location.search).get('build');
-    if (requestedBuild === '54' || requestedBuild === '55') {
-      location.replace(new URL('build' + requestedBuild + '/', location.href));
-    } else if (requestedBuild && requestedBuild !== '56') {
-      const install = document.getElementById('install');
-      install.removeAttribute('href');
-      install.textContent = 'Deze versie is hier niet beschikbaar';
-    }
-  </script>
 </body>
 </html>
